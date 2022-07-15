@@ -44,14 +44,13 @@ variable temp2 equal 1500
 #numero de veces que se incrementara temperatura
 variable n1 equal (v_temp2-v_temp1)/25
 
-variable lim equal bound(all,xmax)-bound(all,xmin)
-variable lx0 = ${lim}
+
 
 #strainrate1= la convercion de las unidades del strainrate
 variable 	strainrate equal 1.0e9
 variable 	strainrate1 equal "v_strainrate/1.0e12"
 
-
+timestep 0.01
 
 #4 potenciales
 #potencial de embedded atom/Finnis-Sinclair para metales
@@ -61,44 +60,62 @@ pair_coeff    * * AuPd.fs Au Pd
 
 #####
 
-velocity all create ${temp1} 12346 mom yes rot yes
-
-variable TEMPE equal "1.0*temp"
-variable PEA equal "pe/v_natoms"
-
-fix 2 all ave/time 10 100 1000 v_TEMPE v_PEA file TvsP_avg.dat
-
-
-
 print "Compresion a distintas temperaturas"
 
 #CICLO
 label loopcompress
 variable a loop ${n1}
 
-compute rf all rdf 50
-fix 3 all ave/time 10 100 1000 c_rf[*] file radialf${}.rdf mode vector
-variable newtemp1 equal (v_a-1)*25+v_temp1
+#Nuevas variables en ciclo
+variable newtemp1 equal (v_a-1)*(v_n1)+v_temp1
+variable diam0 equal bound(all,xmax)-bound(all,xmin)
+variable lx0 equal ${diam0}
+variable xmaximo equal bound(all,xmax)
+variable xminimo equal bound(all,xmin)
 
-fix compressup all indent 10.0 plane x bound(all,xmin) hi 
-compute peratom all pe/atom
-dump compressup all custom ${ndump} dump.${newtemp1} id type x y z c_peratom fx fy fz
+#Definimos regiones
+region arriba v_xmaximo 60 -60 60 -60 60
+group arriba region arriba
+region abajo -60 v_xminimo -60 60 -60 60
+group abajo region abajo
+
+#Seteamos las velocidades con la nueva temperatura
+velocity all create ${newtemp1} 12346 mom yes rot yes
+
+#Indentador cada ciclo
+fix compress all indent 10.0 plane x ${xmaximo} hi 
+
+#rdf pendiente
+
+#Recopila informacion (posiciones para la simulacion) peratom pendiente
+dump compress all custom ${ndump} dump.${newtemp1} id type x y z fx fy fz
+
+#Actualiza las variables termodinámicas cada 100 pasos
 thermo 100
 thermo_style custom step lx ly lz press pxx pyy pzz pe temp
 
+#Lee el valor de strain y stress(solo fuerza)
 variable strain equal "(lx-v_lx0)/v_lx0"
-variable stressf equal "-(0.0001*pxx)*lz*ly"
+variable stressf equal "-(0.0001*pxx)*lz*ly" #1bar=10^5Pa=10^{-4}GPa
 
+#Registra los valores de strain y stress
 fix graphss all print 100 "${strain}   ${stressf}" file STRAINvsSTRESS.dat screen no
+
 
 run 2000
 
 
-
+#terminamos los procesos
 unfix graphss
-unfix compressup
-undump compressup
+unfix compress
+undump compress
 
+#saltamos el valor de a al siguiente
+next a
+#nos regresamos a la etiqueta loopcompress
+jump SELF loopcompress
+
+print "Ya acabamos"
 
 
 
